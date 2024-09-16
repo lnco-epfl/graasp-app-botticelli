@@ -23,15 +23,14 @@ import {
 } from '@mui/material';
 import Stack from '@mui/material/Stack';
 
-import { Member } from '@graasp/sdk';
-
 import { format } from 'date-fns';
+import { sortBy, uniqBy } from 'lodash';
 
-import { hooks, mutations } from '@/config/queryClient';
 import {
   CONVERSATIONS_VIEW_TITLE_CY,
   EXPORT_ALL_BUTTON_CY,
 } from '@/config/selectors';
+import useUserInteractions from '@/modules/context/UserInteractionsContext';
 import MessagesPane from '@/modules/message/MessagesPane';
 import Exchange from '@/types/Exchange';
 import Interaction from '@/types/Interaction';
@@ -50,17 +49,7 @@ const Conversations: FC<Props> = ({
   const { t }: UseTranslationResponse<'translations', undefined> =
     useTranslation();
 
-  // Hook to handle deleting app data
-  const { mutate: deleteAppData } = mutations.useDeleteAppData();
-
-  // Fetching interaction data
-  const appDatas =
-    hooks
-      .useAppData<Interaction>()
-      .data?.filter((appData) => appData.type === 'Interaction') || [];
-
-  // Fetching all members from the app context or defaulting to the checked-out member
-  const allMembers: Member[] = hooks.useAppContext().data?.members || [];
+  const { allInteractionsAppData, deleteInteraction } = useUserInteractions();
 
   const StatusLabel: (started: boolean, complete: boolean) => string = (
     started: boolean,
@@ -154,10 +143,13 @@ const Conversations: FC<Props> = ({
           {t('CONVERSATIONS.TITLE')}
         </Typography>
         <Button
-          disabled={appDatas?.length === 0}
+          disabled={allInteractionsAppData?.length === 0}
           onClick={(): void =>
             exportJsonAsCsv(
-              appDatas.map((appData): Interaction => appData.data),
+              (allInteractionsAppData || []).map(
+                (userInteractionAppData): Interaction =>
+                  userInteractionAppData.data.interaction,
+              ),
               `chatbot_all_${format(new Date(), 'yyyyMMdd_HH.mm')}.csv`,
             )
           }
@@ -179,15 +171,13 @@ const Conversations: FC<Props> = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {allMembers &&
-              allMembers.map((member, index) => {
-                const checkedOutAppData = appDatas?.find(
-                  (appData) => appData.data.participant.id === member.id,
-                );
-
-                const interaction: Interaction | undefined =
-                  checkedOutAppData?.data;
-
+            {allInteractionsAppData &&
+              uniqBy(
+                sortBy(allInteractionsAppData, ['createdAt']).reverse(),
+                'creator.id',
+              ).map((userInteractionAppData, index) => {
+                const checkedOutInteraction: Interaction =
+                  userInteractionAppData.data.interaction;
                 return (
                   <Fragment key={index}>
                     <TableRow>
@@ -207,11 +197,13 @@ const Conversations: FC<Props> = ({
                           )}
                         </IconButton>
                       </TableCell>
-                      <TableCell>{member.name}</TableCell>
                       <TableCell>
-                        {interaction?.updatedAt
+                        {userInteractionAppData.member.name}
+                      </TableCell>
+                      <TableCell>
+                        {checkedOutInteraction.updatedAt
                           ? format(
-                              new Date(interaction.updatedAt),
+                              new Date(checkedOutInteraction.updatedAt),
                               'dd.MM.yyyy HH:mm:ss',
                             )
                           : '-'}
@@ -222,16 +214,16 @@ const Conversations: FC<Props> = ({
                           variant="filled"
                           severity={
                             // eslint-disable-next-line no-nested-ternary
-                            interaction?.completed
+                            checkedOutInteraction.completed
                               ? 'success'
-                              : interaction?.started
+                              : checkedOutInteraction.started
                                 ? 'warning'
                                 : 'error'
                           }
                         >
                           {StatusLabel(
-                            interaction?.started || false,
-                            interaction?.completed || false,
+                            checkedOutInteraction.started || false,
+                            checkedOutInteraction.completed || false,
                           )}
                         </Alert>
                       </TableCell>
@@ -239,11 +231,9 @@ const Conversations: FC<Props> = ({
                         <IconButton
                           color="secondary"
                           onClick={(): void =>
-                            deleteAppData({
-                              id: checkedOutAppData?.id || '',
-                            })
+                            deleteInteraction(userInteractionAppData.id)
                           }
-                          disabled={!checkedOutAppData}
+                          disabled={!userInteractionAppData}
                           sx={{ width: 'auto' }}
                         >
                           <Tooltip title={t('CONVERSATIONS.RESET')}>
@@ -255,11 +245,13 @@ const Conversations: FC<Props> = ({
                         <IconButton
                           onClick={(): void => {
                             exportJsonAsCsv(
-                              interaction ? [interaction] : [],
-                              `chatbot_${interaction?.description}_${format(new Date(), 'yyyyMMdd_HH.mm')}.csv`,
+                              checkedOutInteraction
+                                ? [checkedOutInteraction]
+                                : [],
+                              `chatbot_${checkedOutInteraction?.description}_${format(new Date(), 'yyyyMMdd_HH.mm')}.csv`,
                             );
                           }}
-                          disabled={!interaction}
+                          disabled={!checkedOutInteraction}
                         >
                           <FileDownloadIcon />
                         </IconButton>
@@ -276,18 +268,19 @@ const Conversations: FC<Props> = ({
                           unmountOnExit
                         >
                           <Box py={2} px={20}>
-                            {interaction?.started ? (
+                            {checkedOutInteraction.started ? (
                               <Stack spacing={2}>
                                 <MessagesPane
                                   currentExchange={
-                                    interaction.exchanges.exchangeList[
-                                      interaction.currentExchange
+                                    checkedOutInteraction.exchanges
+                                      .exchangeList[
+                                      checkedOutInteraction.currentExchange
                                     ]
                                   }
                                   setExchange={(): void => {}}
                                   interactionDescription=""
                                   pastMessages={
-                                    interaction.exchanges.exchangeList.flatMap(
+                                    checkedOutInteraction.exchanges.exchangeList.flatMap(
                                       (exchange: Exchange): Message[] => {
                                         // Collect dismissed messages from exchanges
                                         if (exchange.dismissed) {
@@ -297,7 +290,9 @@ const Conversations: FC<Props> = ({
                                       },
                                     ) || []
                                   }
-                                  participant={interaction.participant}
+                                  participant={
+                                    checkedOutInteraction.participant
+                                  }
                                   autoDismiss={false}
                                   goToNextExchange={(): void => {}}
                                   readOnly

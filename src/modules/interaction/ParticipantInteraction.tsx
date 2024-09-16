@@ -1,25 +1,11 @@
-import {
-  Dispatch,
-  MutableRefObject,
-  ReactElement,
-  SetStateAction,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
 import { UseTranslationResponse, useTranslation } from 'react-i18next';
 
 import { Button } from '@mui/material';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 
-import {
-  AppContext,
-  LocalContext,
-  useLocalContext,
-} from '@graasp/apps-query-client';
+import { AppContext, useLocalContext } from '@graasp/apps-query-client';
 import { Member } from '@graasp/sdk';
 
 import { UseQueryResult } from '@tanstack/react-query';
@@ -30,7 +16,7 @@ import {
   defaultInteraction,
   defaultUser,
 } from '@/config/config';
-import { hooks, mutations } from '@/config/queryClient';
+import { hooks } from '@/config/queryClient';
 import { START_INTERACTION_BUTTON_CY } from '@/config/selectors';
 import MessagesPane from '@/modules/message/MessagesPane';
 import Agent from '@/types/Agent';
@@ -39,31 +25,35 @@ import Exchange from '@/types/Exchange';
 import Interaction from '@/types/Interaction';
 
 import { SettingsContextType, useSettings } from '../context/SettingsContext';
+import useUserInteractions from '../context/UserInteractionsContext';
 
 // Main component: ParticipantInteraction
 const ParticipantInteraction = (): ReactElement => {
-  // Getting the participant ID from local context
-  const { memberId: participantId }: LocalContext = useLocalContext();
-
-  // Fetching application data for interactions
-  const { data: appDataList, isLoading: appDataLoading } =
-    hooks.useAppData<Interaction>();
-  const { mutate: postAppData } = mutations.usePostAppData();
-  const { mutate: patchAppData } = mutations.usePatchAppData();
-
-  // Fetching settings context
-  const { chat, exchanges }: SettingsContextType = useSettings();
   const { t }: UseTranslationResponse<'translations', undefined> =
     useTranslation();
 
+  // Getting the participant ID from local context
+  const { memberId } = useLocalContext();
+
+  // Fetching settings context
+  const { chat, exchanges }: SettingsContextType = useSettings();
+
+  const { userInteraction, setInteraction: setSavedInteraction } =
+    useUserInteractions();
+
   // Fetching app member context
-  const { data: appContextData }: UseQueryResult<AppContext, unknown> =
-    hooks.useAppContext();
+  const {
+    data: appContextData,
+    isSuccess,
+  }: UseQueryResult<AppContext, unknown> = hooks.useAppContext();
 
   // Find the member in app context data by participant ID
   const appMember: Member | undefined = useMemo(
-    () => appContextData?.members.find((member) => member.id === participantId),
-    [appContextData, participantId],
+    () =>
+      appContextData?.members.find(
+        (member) => member.id === memberId && memberId.length > 0,
+      ),
+    [appContextData, memberId],
   );
 
   // Define the current member as an agent, merging with the default user
@@ -102,78 +92,47 @@ const ParticipantInteraction = (): ReactElement => {
       return interactionBase;
     }, [chat, currentMember, exchanges.exchangeList]);
 
-  // Memoize the current app data for the participant
-  const currentAppData = useMemo(
-    () =>
-      appDataList
-        ?.filter((appData) => appData.type === 'Interaction')
-        .find((appData) => appData.data.participant.id === participantId),
-    [appDataList, participantId],
-  );
-
   // State to manage the current interaction, either from existing data or a new template
-  const [interaction, setInteraction]: [
-    Interaction | undefined,
-    Dispatch<SetStateAction<Interaction | undefined>>,
-  ] = useState<Interaction | undefined>(undefined);
+  const [interaction, setInteraction] =
+    useState<Interaction>(defaultInteraction);
+  const [isInit, setIsInit] = useState<boolean>(false);
 
-  useEffect((): void => {
-    if (!appDataLoading && appContextData && appMember) {
-      setInteraction(currentAppData?.data || createInteractionFromTemplate());
+  // Update the interaction if the stored value change
+  useEffect(() => {
+    if (!isInit && typeof userInteraction !== undefined && isSuccess) {
+      setInteraction(
+        userInteraction?.interaction ?? createInteractionFromTemplate(),
+      );
+      setIsInit(true);
     }
   }, [
-    appDataLoading,
-    appContextData,
-    appMember,
     createInteractionFromTemplate,
-    currentAppData?.data,
+    interaction.started,
+    isInit,
+    isSuccess,
+    setInteraction,
+    userInteraction,
   ]);
 
-  // Ref to track if the app data has already been posted
-  const hasPosted: MutableRefObject<boolean> = useRef(!!currentAppData);
-
-  useEffect(() => {
-    if (currentAppData) {
-      // Set hasPosted to true when currentAppData is available
-      hasPosted.current = true;
-    }
-  }, [currentAppData]);
-
-  // Effect to post the interaction data if it hasn't been posted yet
   useEffect((): void => {
-    if (!appDataLoading && !hasPosted.current && interaction) {
-      postAppData({ data: interaction, type: 'Interaction' });
-      hasPosted.current = true;
+    if (appMember) {
+      setSavedInteraction(interaction);
     }
-  }, [appDataLoading, interaction, postAppData]);
-
-  // Effect to patch the interaction data if it has been posted and current app data exists
-  useEffect((): void => {
-    if (hasPosted.current && currentAppData?.id && interaction) {
-      patchAppData({
-        id: currentAppData.id,
-        data: interaction,
-      });
-    }
-  }, [interaction, patchAppData, currentAppData?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appMember, interaction]);
 
   // Callback to update a specific exchange within the interaction
   const updateExchange = useCallback((updatedExchange: Exchange): void => {
     setInteraction(
-      (prevState: Interaction | undefined): Interaction | undefined => {
-        if (prevState) {
-          return {
-            ...(prevState || defaultInteraction),
-            exchanges: {
-              exchangeList: prevState.exchanges.exchangeList.map((exchange) =>
-                exchange.id === updatedExchange.id ? updatedExchange : exchange,
-              ),
-            },
-            updatedAt: new Date(),
-          };
-        }
-        return undefined;
-      },
+      (prevState: Interaction): Interaction => ({
+        ...(prevState || defaultInteraction),
+        exchanges: {
+          exchangeList: prevState.exchanges.exchangeList.map((exchange) =>
+            exchange.id === updatedExchange.id ? updatedExchange : exchange,
+          ),
+        },
+        updatedAt: new Date(),
+      }),
     );
   }, []);
 
@@ -197,40 +156,34 @@ const ParticipantInteraction = (): ReactElement => {
 
   // Function to start the interaction
   const startInteraction = (): void => {
-    setInteraction((prev: Interaction | undefined): Interaction | undefined => {
-      if (prev) {
-        return {
-          ...(prev || defaultInteraction),
-          started: true,
-          startedAt: new Date(),
-          updatedAt: new Date(),
-        };
-      }
-      return undefined;
-    });
+    setInteraction(
+      (prev: Interaction): Interaction => ({
+        ...(prev || defaultInteraction),
+        started: true,
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    );
   };
 
   // Function to move to the next exchange or complete the interaction
   const goToNextExchange = (): void => {
-    setInteraction((prev: Interaction | undefined): Interaction | undefined => {
-      if (prev) {
-        const numExchanges: number = prev.exchanges.exchangeList.length || 0;
-        if (prev.currentExchange === numExchanges - 1) {
-          // If this is the last exchange, mark the interaction as completed
-          return {
-            ...prev,
-            completed: true,
-            completedAt: new Date(),
-            updatedAt: new Date(),
-          };
-        }
+    setInteraction((prev: Interaction): Interaction => {
+      const numExchanges: number = prev.exchanges.exchangeList.length || 0;
+      if (prev.currentExchange === numExchanges - 1) {
+        // If this is the last exchange, mark the interaction as completed
         return {
           ...prev,
-          currentExchange: (prev?.currentExchange || 0) + 1,
+          completed: true,
+          completedAt: new Date(),
           updatedAt: new Date(),
         };
       }
-      return undefined;
+      return {
+        ...prev,
+        currentExchange: (prev?.currentExchange || 0) + 1,
+        updatedAt: new Date(),
+      };
     });
   };
 
