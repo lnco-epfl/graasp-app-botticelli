@@ -92,7 +92,6 @@ const Root: FC = () => {
                   }
                   LoadingComponent={<Loader />}
                   useGetLocalContext={hooks.useGetLocalContext}
-                  useAutoResize={hooks.useAutoResize}
                   onError={() => {
                     console.error(
                       'An error occurred while fetching the context.',
