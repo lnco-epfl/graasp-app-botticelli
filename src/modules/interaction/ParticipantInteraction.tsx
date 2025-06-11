@@ -244,7 +244,11 @@ const ParticipantInteraction = (): ReactElement => {
 
   // Handle the start of the interaction
   const handleStartInteraction = (): void => {
-    toggleFullscreen();
+    try {
+      toggleFullscreen();
+    } catch (err) {
+      console.error(`unable to toggle fullscreen: ${err}`);
+    }
     startInteraction();
   };
 
