@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "license": "AGPL-3.0-only",
   "author": "Juan Carlos Farah",
-  "contributors": [],
+  "contributors": [
+    "Yannick Mijsters",
+    "Jonas Rohrer"
+  ],
   "homepage": ".",
   "type": "module",
   "dependencies": {
