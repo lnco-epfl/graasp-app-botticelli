@@ -32,6 +32,7 @@ import {
 } from '@/config/config';
 import { hooks, mutations } from '@/config/queryClient';
 import { START_INTERACTION_BUTTON_CY } from '@/config/selectors';
+import { useFullscreen } from '@/hooks/useFullscreen';
 import MessagesPane from '@/modules/message/MessagesPane';
 import Agent from '@/types/Agent';
 import AgentType from '@/types/AgentType';
@@ -59,6 +60,8 @@ const ParticipantInteraction = (): ReactElement => {
   // Fetching app member context
   const { data: appContextData }: UseQueryResult<AppContext, unknown> =
     hooks.useAppContext();
+
+  const { toggleFullscreen } = useFullscreen();
 
   // Find the member in app context data by participant ID
   const appMember: Member | undefined = useMemo(
@@ -241,6 +244,7 @@ const ParticipantInteraction = (): ReactElement => {
 
   // Handle the start of the interaction
   const handleStartInteraction = (): void => {
+    toggleFullscreen();
     startInteraction();
   };
 
